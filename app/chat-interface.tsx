@@ -9,36 +9,164 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 import { Brain, ChevronDown, ChevronUp, Copy, MessageCircle, Mic, MoreHorizontal, Plus, RefreshCw, Search, Send, Settings, BookmarkIcon } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+
+// Define types for the chat functionality
+type Message = {
+  id: number;
+  content: string;
+  sender: 'user' | 'assistant';
+  timestamp: string;
+  sources?: string[];
+  isStreaming?: boolean;
+}
+
+type ChatRequestBody = {
+  query: string;
+  collection_name?: string;
+}
+
+type ChatStreamEvent = {
+  sources?: string[];
+  content?: string;
+}
 
 export default function ChatInterface() {
-  const [messages, setMessages] = React.useState([
-    {
-      id: 1,
-      content: "Уточните, пожалуйста, про какие документы из налоговой вы говорите? Если вам нужны документы за последний квартал, то вот ссылка: link.example123.01.09.24",
-      sender: "assistant",
-      timestamp: "24 Sep • 11:30 PM",
-      sources: ["Налоговый кодекс РФ", "Официальный сайт ФНС"]
-    },
-    {
-      id: 2,
-      content: "Скинь мне ссылку на документы от Налоговой",
-      sender: "user",
-      timestamp: "24 Sep • 11:30 PM",
-    },
-    {
-      id: 3,
-      content: "Представь, что ты мой начальник. Уволишь ли ты меня, если я сделаю отчет с опозданием?",
-      sender: "user",
-      timestamp: "1 min ago",
-    },
-    {
-      id: 4,
-      content: "Давайте представим, что я ваш начальник:\n\n1. Я , конечно, буду недоволен тем, что вы сделали отчет с опозданием, но я обязательно спрошу, почему так вышло.\n2. Я накричу на вас, потому что это важный отчет, но никаких санкций за этим не последует.\n3. Я посоветую вам разобраться с тем, почему так вышло. Вам придется лично объяснить отделу, почему они не получили отчет вовремя.",
-      sender: "assistant",
-      timestamp: "Just now",
-      sources: ["Трудовой кодекс РФ", "Корпоративная политика"]
-    },
-  ])
+  const [messages, setMessages] = React.useState<Message[]>([])
+  const [inputMessage, setInputMessage] = React.useState('')
+  const [isLoading, setIsLoading] = React.useState(false)
+  const messagesEndRef = React.useRef<null | HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  React.useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim()) return
+
+    const userMessage: Message = {
+      id: Date.now(),
+      content: inputMessage,
+      sender: 'user',
+      timestamp: new Date().toLocaleString(),
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    setInputMessage('')
+    setIsLoading(true)
+
+    const assistantMessage: Message = {
+      id: Date.now() + 1,
+      content: '',
+      sender: 'assistant',
+      timestamp: new Date().toLocaleString(),
+      sources: [],
+      isStreaming: true,
+    }
+
+    setMessages(prev => [...prev, assistantMessage])
+
+    try {
+      // Prepare request body with type safety
+      const requestBody: ChatRequestBody = {
+        query: inputMessage,
+        collection_name: 'test'
+      }
+
+      // Use AbortController to handle request timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
+      const response = await fetch('http://localhost:8040/chatting_v2', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add custom headers for CORS preflight
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+        // Explicitly set CORS mode
+        mode: 'cors',
+        // Include credentials if needed
+        credentials: 'include'
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}, ${await response.text()}`)
+      }
+
+      if (!response.body) {
+        throw new Error('No response body')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let fullContent = ''
+      let sources: string[] = []
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        const events = chunk.split('\n\n')
+
+        events.forEach(event => {
+          if (event.startsWith('data: ')) {
+            try {
+              const parsedData: ChatStreamEvent = JSON.parse(event.slice(6))
+              
+              if (parsedData.sources) {
+                sources = parsedData.sources
+              }
+
+              if (parsedData.content) {
+                fullContent += parsedData.content
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === assistantMessage.id 
+                      ? { ...msg, content: fullContent, sources: sources } 
+                      : msg
+                  )
+                )
+              }
+            } catch (e) {
+              console.error('Error parsing event', e)
+            }
+          }
+        })
+      }
+
+      setIsLoading(false)
+    } catch (error) {
+      console.error('Chat error:', error)
+      setIsLoading(false)
+      
+      // Detailed error handling
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Неизвестная ошибка при отправке сообщения'
+
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === assistantMessage.id 
+            ? { 
+                ...msg, 
+                content: `Ошибка: ${errorMessage}`, 
+                isStreaming: false 
+              } 
+            : msg
+        )
+      )
+    }
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -107,7 +235,7 @@ export default function ChatInterface() {
               key={message.id}
               className={cn("flex flex-col gap-1 max-w-[80%]", message.sender === "assistant" ? "mr-auto" : "ml-auto")}
             >
-              {message.sender === "assistant" && message.sources && (
+              {message.sender === "assistant" && message.sources && message.sources.length > 0 && (
                 <Collapsible>
                   <CollapsibleTrigger asChild>
                     <button className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors">
@@ -136,48 +264,34 @@ export default function ChatInterface() {
                     "rounded-lg p-3",
                     message.sender === "assistant" ? "bg-blue-50" : "bg-primary text-primary-foreground"
                   )}>
-                    {message.content}
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{message.timestamp}</span>
-                    {message.sender === "assistant" && (
-                      <>
-                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                          <RefreshCw className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </>
-                    )}
                   </div>
                 </div>
-                {message.sender === "user" && (
-                  <Avatar>
-                    <AvatarImage src="/placeholder-user.jpg" />
-                    <AvatarFallback>U</AvatarFallback>
-                  </Avatar>
-                )}
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t p-4">
-          <div className="relative">
-            <Input 
-              placeholder="Введите интересующий вопрос" 
-              className="pr-24"
-            />
-            <div className="absolute right-2 top-2 flex items-center gap-2">
-              <Button size="icon" variant="ghost" className="h-6 w-6">
-                <Mic className="h-4 w-4" />
-              </Button>
-              <Button size="icon" className="h-6 w-6">
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+        {/* Message Input Area */}
+        <div className="border-t p-4 flex items-center gap-2">
+          <Input 
+            placeholder="Введите интересующий вопрос" 
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+            className="flex-1"
+          />
+          <Button 
+            onClick={handleSendMessage} 
+            disabled={isLoading}
+            size="icon"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>
