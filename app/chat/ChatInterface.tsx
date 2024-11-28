@@ -6,6 +6,7 @@ import { ChatList } from './components/ChatList'
 import { ChatMessages } from './components/ChatMessages'
 import { ChatInput } from './components/ChatInput'
 import { Message } from './types/message'
+import { messageApi } from './api/messageApi' // Assuming messageApi is imported from this file
 
 export default function ChatInterface() {
   const {
@@ -43,7 +44,7 @@ export default function ChatInterface() {
 
     // Add user message and save to backend
     addMessage(userMessage)
-    await saveMessage(userMessage, 'user')
+    await messageApi.saveMessage(userMessage, currentChat.id, 'user')
 
     // Prepare for streaming response
     const assistantMessage: Message = {
@@ -60,11 +61,8 @@ export default function ChatInterface() {
     try {
       // Stream chat response
       await streamChatResponse(
-        {
-          query: inputMessage,
-          collection_name: 'test',
-          chat_id: currentChat.id
-        },
+        inputMessage,
+        currentChat.id,
         // Content update callback
         (content, sources) => {
           updateLastMessage(content, sources)
@@ -75,10 +73,13 @@ export default function ChatInterface() {
           const lastMessage = messages[messages.length - 1]
           
           // Save assistant message to backend
-          await saveMessage(
-            { ...lastMessage, content: lastMessage.content || '' }, 
-            'model'
-          )
+          if (lastMessage) {
+            await messageApi.saveMessage(
+              { ...lastMessage, content: lastMessage.content || '' },
+              currentChat.id,
+              'model'
+            )
+          }
         }
       )
     } catch (err) {
