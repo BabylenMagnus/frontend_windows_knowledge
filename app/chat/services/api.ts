@@ -182,3 +182,56 @@ export async function fetchFileInfo(storageId: number, fileId: number) {
   }
   return await response.json()
 }
+
+// File endpoints
+export async function uploadFile(storageId: number, file: File, description?: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (description) {
+    formData.append('description', description)
+  }
+
+  const response = await fetch(`${API_BASE_URL}/storages/${storageId}/files`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null)
+    throw new Error(error?.detail || 'Failed to upload file')
+  }
+
+  const result = await response.json()
+  return result.data
+}
+
+export async function addUrl(storageId: number, url: string) {
+  const response = await fetch(`${API_BASE_URL}/storages/${storageId}/urls`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null)
+    throw new Error(errorData?.message || 'Failed to add URL')
+  }
+
+  const result = await response.json()
+  return result.data
+}
+
+export async function deleteFile(storageId: number, fileId: number) {
+  const response = await fetch(`${API_BASE_URL}/storages/${storageId}/files/${fileId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null)
+    throw new Error(error?.detail || 'Failed to delete file')
+  }
+
+  return await response.json()
+}
