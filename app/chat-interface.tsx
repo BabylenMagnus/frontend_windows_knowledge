@@ -52,6 +52,9 @@ type ChatRequestBody = {
   query: string;
   collection_name?: string;
   chat_id?: number;
+  token?: string;
+  selected_model?: number;
+  with_gpt?: boolean;
 }
 
 type ChatStreamEvent = {
@@ -73,6 +76,42 @@ export default function ChatInterface() {
   const messagesEndRef = React.useRef<null | HTMLDivElement>(null)
 
   const router = useRouter()
+
+  // Get settings from localStorage at the beginning of the component
+  const [token, setToken] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('apiToken') || '';
+    }
+    return '';
+  });
+
+  const [selectedModel, setSelectedModel] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('selectedModel') || '';
+    }
+    return '';
+  });
+
+  const [neuroApiEnabled, setNeuroApiEnabled] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('neuroApiEnabled') === 'true';
+    }
+    return false;
+  });
+
+  // Update settings when localStorage changes
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const handleStorageChange = () => {
+        setToken(localStorage.getItem('apiToken') || '');
+        setSelectedModel(localStorage.getItem('selectedModel') || '');
+        setNeuroApiEnabled(localStorage.getItem('neuroApiEnabled') === 'true');
+      };
+
+      window.addEventListener('storage', handleStorageChange);
+      return () => window.removeEventListener('storage', handleStorageChange);
+    }
+  }, []);
 
   // Fetch models and chats when component mounts
   React.useEffect(() => {
@@ -249,206 +288,209 @@ export default function ChatInterface() {
 
   // Modify handleSendMessage to save messages to chat history
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || !currentChat) return
+    if (!inputMessage.trim() || !currentChat) return;
 
     const userMessage: Message = {
-      id: Date.now(),
-      content: inputMessage,
-      sender: 'user',
-      timestamp: new Date().toLocaleString(),
-    }
+        id: Date.now(),
+        content: inputMessage,
+        sender: 'user',
+        timestamp: new Date().toLocaleString(),
+    };
 
     // Update local state and cache
-    const updatedMessages = [...messages, userMessage]
-    setMessages(updatedMessages)
-    
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+
     // Update cache for current chat
     if (currentChat.id) {
-      setChatHistoryCache(prev => ({
-        ...prev,
-        [currentChat.id]: updatedMessages
-      }))
+        setChatHistoryCache(prev => ({
+            ...prev,
+            [currentChat.id]: updatedMessages
+        }));
 
-      // Update chats list to move current chat to top
-      setChats(prevChats => {
-        const updatedChats = prevChats.map(chat => 
-          chat.id === currentChat.id 
-            ? { ...chat, lastMessageTimestamp: new Date().toISOString() }
-            : chat
-        )
-        
-        // Re-sort chats
-        return updatedChats.sort((a, b) => {
-          const dateA = new Date(a.lastMessageTimestamp || a.created_at).getTime()
-          const dateB = new Date(b.lastMessageTimestamp || b.created_at).getTime()
-          return dateB - dateA
-        })
-      })
+        // Update chats list to move current chat to top
+        setChats(prevChats => {
+            const updatedChats = prevChats.map(chat => 
+                chat.id === currentChat.id 
+                    ? { ...chat, lastMessageTimestamp: new Date().toISOString() }
+                    : chat
+            );
+
+            // Re-sort chats
+            return updatedChats.sort((a, b) => {
+                const dateA = new Date(a.lastMessageTimestamp || a.created_at).getTime();
+                const dateB = new Date(b.lastMessageTimestamp || b.created_at).getTime();
+                return dateB - dateA;
+            });
+        });
     }
 
     // Send user message to backend
     try {
-      // Save user message to chat history
-      await fetch('http://localhost:8040/chat_history', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        mode: 'cors',
-        body: JSON.stringify({
-          chat_id: currentChat.id,
-          text: inputMessage,
-          author: 'user'
-        })
-      })
+        // Save user message to chat history
+        await fetch('http://localhost:8040/chat_history', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors',
+            body: JSON.stringify({
+                chat_id: currentChat.id,
+                text: inputMessage,
+                author: 'user'
+            })
+        });
 
-      setInputMessage('')
-      setIsLoading(true)
+        setInputMessage('');
+        setIsLoading(true);
 
-      const assistantMessage: Message = {
-        id: Date.now() + 1,
-        content: '',
-        sender: 'assistant',
-        timestamp: new Date().toLocaleString(),
-        sources: [],
-        isStreaming: true,
-      }
+        const assistantMessage: Message = {
+            id: Date.now() + 1,
+            content: '',
+            sender: 'assistant',
+            timestamp: new Date().toLocaleString(),
+            sources: [],
+            isStreaming: true,
+        };
 
-      // Add assistant message to state
-      setMessages(prev => [...prev, assistantMessage])
+        // Add assistant message to state
+        setMessages(prev => [...prev, assistantMessage]);
 
-      // Prepare request body with chat_id
-      const requestBody: ChatRequestBody = {
-        query: inputMessage,
-        collection_name: 'test',
-        chat_id: currentChat.id
-      }
+        // Prepare request body with chat_id, token, selected model, and with_gpt flag
+        const requestBody: ChatRequestBody = {
+            query: inputMessage,
+            collection_name: 'test',
+            chat_id: currentChat.id,
+            token: token,
+            selected_model: selectedModel,
+            with_gpt: neuroApiEnabled
+        };
 
-      // Use AbortController to handle request timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        // Use AbortController to handle request timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      const response = await fetch('http://localhost:8040/chatting_v2', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-        mode: 'cors',
-        credentials: 'include'
-      })
+        const response = await fetch('http://localhost:8040/chatting_v2', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+            mode: 'cors',
+            credentials: 'include'
+        });
 
-      clearTimeout(timeoutId)
+        clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}, ${await response.text()}`)
-      }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}, ${await response.text()}`);
+        }
 
-      if (!response.body) {
-        throw new Error('No response body')
-      }
+        if (!response.body) {
+            throw new Error('No response body');
+        }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let fullContent = ''
-      let sources: string[] = []
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let sources: string[] = [];
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-        const chunk = decoder.decode(value)
-        const events = chunk.split('\n\n')
+            const chunk = decoder.decode(value);
+            const events = chunk.split('\n\n');
 
-        events.forEach(event => {
-          if (event.startsWith('data: ')) {
-            try {
-              const parsedData: ChatStreamEvent = JSON.parse(event.slice(6))
+            events.forEach(event => {
+                if (event.startsWith('data: ')) {
+                    try {
+                        const parsedData: ChatStreamEvent = JSON.parse(event.slice(6));
 
-              if (parsedData.sources) {
-                sources = parsedData.sources
-              }
+                        if (parsedData.sources) {
+                            sources = parsedData.sources;
+                        }
 
-              if (parsedData.content) {
-                fullContent += parsedData.content
-                setMessages(prev => 
-                  prev.map(msg => 
-                    msg.id === assistantMessage.id 
-                      ? { ...msg, content: fullContent, sources: sources, isStreaming: true } 
-                      : msg
-                  )
-                )
-              }
-            } catch (e) {
-              console.error('Error parsing event', e)
-            }
-          }
-        })
-      }
+                        if (parsedData.content) {
+                            fullContent += parsedData.content;
+                            setMessages(prev => 
+                                prev.map(msg => 
+                                    msg.id === assistantMessage.id 
+                                        ? { ...msg, content: fullContent, sources: sources, isStreaming: true } 
+                                        : msg
+                                )
+                            );
+                        }
+                    } catch (e) {
+                        console.error('Error parsing event', e);
+                    }
+                }
+            });
+        }
 
-      // Save assistant message to chat history
-      await fetch('http://localhost:8040/chat_history', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        mode: 'cors',
-        body: JSON.stringify({
-          chat_id: currentChat.id,
-          text: fullContent,
-          author: 'model'
-        })
-      })
+        // Save assistant message to chat history
+        await fetch('http://localhost:8040/chat_history', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors',
+            body: JSON.stringify({
+                chat_id: currentChat.id,
+                text: fullContent,
+                author: 'model'
+            })
+        });
 
-      // Update messages with final content and mark as not streaming
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === assistantMessage.id 
-            ? { ...msg, content: fullContent, sources: sources, isStreaming: false } 
-            : msg
-        )
-      )
+        // Update messages with final content and mark as not streaming
+        setMessages(prev => 
+            prev.map(msg => 
+                msg.id === assistantMessage.id 
+                    ? { ...msg, content: fullContent, sources: sources, isStreaming: false } 
+                    : msg
+            )
+        );
 
-      // Update chat history cache
-      if (currentChat.id) {
-        setChatHistoryCache(prev => {
-          const updatedMessages = prev[currentChat.id] 
-            ? [...prev[currentChat.id], 
-               { ...assistantMessage, content: fullContent, sources: sources, isStreaming: false }]
-            : [userMessage, { ...assistantMessage, content: fullContent, sources: sources, isStreaming: false }]
-          
-          return {
-            ...prev,
-            [currentChat.id]: updatedMessages
-          }
-        })
-      }
+        // Update chat history cache
+        if (currentChat.id) {
+            setChatHistoryCache(prev => {
+                const updatedMessages = prev[currentChat.id] 
+                    ? [...prev[currentChat.id], 
+                       { ...assistantMessage, content: fullContent, sources: sources, isStreaming: false }]
+                    : [userMessage, { ...assistantMessage, content: fullContent, sources: sources, isStreaming: false }];
+                
+                return {
+                    ...prev,
+                    [currentChat.id]: updatedMessages
+                };
+            });
+        }
 
-      setIsLoading(false)
+        setIsLoading(false);
     } catch (error) {
-      console.error('Chat error:', error)
-      setIsLoading(false)
+        console.error('Chat error:', error);
+        setIsLoading(false);
 
-      // Detailed error handling
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : 'Неизвестная ошибка при отправке сообщения'
+        // Detailed error handling
+        const errorMessage = error instanceof Error 
+            ? error.message 
+            : 'Неизвестная ошибка при отправке сообщения';
 
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === (prev[prev.length - 1]?.id || 0)
-            ? { 
-                ...msg, 
-                content: `Ошибка: ${errorMessage}`, 
-                isStreaming: false 
-              } 
-            : msg
-        )
-      )
+        setMessages(prev => 
+            prev.map(msg => 
+                msg.id === (prev[prev.length - 1]?.id || 0)
+                    ? { 
+                        ...msg, 
+                        content: `Ошибка: ${errorMessage}`, 
+                        isStreaming: false 
+                    } 
+                    : msg
+            )
+        );
     }
-  }
+  };
 
   // Scrolling logic remains the same
   const scrollToBottom = () => {
