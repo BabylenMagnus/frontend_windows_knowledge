@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Storage, StorageFile } from '../types/storage'
-import { fetchStorages } from '../services/api'
+import { fetchStorages, createStorage, updateStorage, fetchStorageFiles } from '../services/api'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8040'
 
@@ -57,31 +57,67 @@ export function useStorageList() {
       const data = await fetchStorages()
       setStorages(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load storages')
       console.error('Error loading storages:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load storages')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const fetchStorageFiles = async (storageId: number) => {
+  const addStorage = async (name: string, description?: string) => {
+    setIsLoading(true)
+    setError(null)
     try {
-      setIsLoading(true)
-      // В реальном приложении здесь будет API запрос
-      setFiles(mockFiles)
+      const newStorage = await createStorage(name, description)
+      setStorages(prev => [...prev, newStorage])
+      return newStorage
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch storage files')
+      console.error('Error creating storage:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create storage')
+      throw err
     } finally {
       setIsLoading(false)
     }
   }
 
-  const selectStorage = async (storage: Storage) => {
-    setCurrentStorage(storage)
-    await fetchStorageFiles(storage.id)
+  const renameStorage = async (storageId: number, newName: string, description?: string) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const updatedStorage = await updateStorage(storageId, newName, description)
+      setStorages(prev => prev.map(storage => 
+        storage.id === storageId ? updatedStorage : storage
+      ))
+      if (currentStorage?.id === storageId) {
+        setCurrentStorage(updatedStorage)
+      }
+      return updatedStorage
+    } catch (err) {
+      console.error('Error updating storage:', err)
+      setError(err instanceof Error ? err.message : 'Failed to update storage')
+      throw err
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  // Initial load
+  const loadStorageFiles = async (storageId: number) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await fetchStorageFiles(storageId)
+      setFiles(data)
+      const storage = storages.find(s => s.id === storageId) || null
+      setCurrentStorage(storage)
+    } catch (err) {
+      console.error('Error loading storage files:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load storage files')
+      throw err
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadStorages()
   }, [])
@@ -92,8 +128,9 @@ export function useStorageList() {
     files,
     isLoading,
     error,
-    selectStorage,
+    addStorage,
+    renameStorage,
+    loadStorageFiles,
     refreshStorages: loadStorages,
-    refreshFiles: () => currentStorage && fetchStorageFiles(currentStorage.id)
   }
 }

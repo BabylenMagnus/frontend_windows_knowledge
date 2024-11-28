@@ -1,93 +1,95 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Message } from '../types/chat'
-import { fetchChatHistory, sendMessage } from '../services/api'
+import { nanoid } from 'nanoid'
+import { fetchChatHistory, streamChatResponse, sendMessage } from '../services/api'
 
-export function useChatHistory(chatId: number | undefined) {
+export function useChatHistory(chatId: number) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadMessages = async () => {
-    if (!chatId) {
-      setMessages([])
-      return
-    }
-    
-    setIsLoading(true)
-    setError(null)
+  const loadMessages = useCallback(async () => {
+    if (!chatId) return
     
     try {
-      console.log('Fetching messages for chat:', chatId)
       const history = await fetchChatHistory(chatId)
-      console.log('Fetched messages:', history)
-      
-      // Validate and transform messages
-      if (Array.isArray(history)) {
-        const validMessages = history.filter(msg => 
-          msg && 
-          typeof msg === 'object' && 
-          'id' in msg && 
-          'text' in msg &&
-          'author' in msg
-        ) as Message[]
-        
-        setMessages(validMessages)
-        console.log('Valid messages:', validMessages)
-      } else {
-        console.warn('Fetched history is not an array:', history)
-        setMessages([])
-      }
+      setMessages(history)
     } catch (err) {
       console.error('Error loading messages:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load messages')
-    } finally {
-      setIsLoading(false)
+      setError('Не удалось загрузить историю сообщений')
     }
-  }
+  }, [chatId])
 
-  const addMessage = async (text: string) => {
-    if (!chatId) return
+  const addMessage = async (content: string) => {
+    if (!content.trim()) return
+
+    const userMessage: Message = {
+      id: nanoid(),
+      text: content,
+      author: 'user',
+      timestamp: new Date().toISOString(),
+    }
+    
+    setMessages(prev => [...prev, userMessage])
+    setIsLoading(true)
+    setError(null)
 
     try {
-      // Optimistically add user message
-      const userMessage: Message = {
-        id: Date.now(),
-        text,
-        author: 'user',
-        chat_id: chatId,
-        created_at: new Date().toISOString()
+      await sendMessage(chatId, content, 'user')
+
+      const assistantMessage: Message = {
+        id: nanoid(),
+        text: '',
+        author: 'assistant',
+        timestamp: new Date().toISOString(),
       }
-      setMessages(prev => [...prev, userMessage])
+      
+      setMessages(prev => [...prev, assistantMessage])
 
-      // Send message to backend
-      console.log('Sending message:', { chat_id: chatId, text, author: 'user' })
-      const response = await sendMessage(chatId, text)
-      console.log('Message response:', response)
-
-      if (response && typeof response === 'object' && 'text' in response) {
-        // Add assistant message when received
-        const assistantMessage: Message = {
-          id: Date.now() + 1,
-          text: response.text,
-          author: 'assistant',
-          chat_id: chatId,
-          created_at: new Date().toISOString()
+      await streamChatResponse({
+        chatId,
+        query: content,
+        onChunk: (chunk) => {
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1]
+            if (lastMessage && lastMessage.author === 'assistant') {
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMessage,
+                  text: lastMessage.text + chunk
+                }
+              ]
+            }
+            return prev
+          })
+        },
+        onError: (err) => {
+          console.error('Stream error:', err)
+          setError('Произошла ошибка при получении ответа')
+          setIsLoading(false)
+        },
+        onComplete: async () => {
+          const lastMessage = messages[messages.length - 1]
+          if (lastMessage && lastMessage.author === 'assistant') {
+            await sendMessage(chatId, lastMessage.text, 'assistant')
+          }
+          setIsLoading(false)
         }
-        setMessages(prev => [...prev, assistantMessage])
-      } else {
-        console.warn('Invalid message response:', response)
-      }
+      })
     } catch (err) {
-      console.error('Error sending message:', err)
-      setError(err instanceof Error ? err.message : 'Failed to send message')
+      console.error('Chat error:', err)
+      setError('Произошла ошибка при отправке сообщения')
+      setMessages(prev => prev.slice(0, -1)) // Remove failed message
+      setIsLoading(false)
     }
   }
 
   useEffect(() => {
     loadMessages()
-  }, [chatId])
+  }, [loadMessages])
 
   return {
     messages,
