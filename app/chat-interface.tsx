@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -70,6 +71,8 @@ export default function ChatInterface() {
   const [inputMessage, setInputMessage] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
   const messagesEndRef = React.useRef<null | HTMLDivElement>(null)
+
+  const router = useRouter()
 
   // Fetch models and chats when component mounts
   React.useEffect(() => {
@@ -500,14 +503,18 @@ export default function ChatInterface() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
+        {/* Header with Settings Button */}
         <div className="border-b p-4 flex items-center justify-between">
-          <h2 className="font-semibold">Текущий чат с Ассистентом</h2>
-          <div className="flex items-center gap-2">
-            <Button size="icon" variant="ghost">
-              <Search className="h-4 w-4" />
-            </Button>
-            <Button size="icon" variant="ghost">
-              <Settings className="h-4 w-4" />
+          <div className="flex items-center space-x-2">
+            <h1 className="text-xl font-semibold">Window Knowledge Chat</h1>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => router.push('/settings')}
+            >
+              <Settings className="h-5 w-5" />
             </Button>
           </div>
         </div>
