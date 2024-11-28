@@ -124,11 +124,12 @@ export async function streamChatResponse(options: StreamChatOptions): Promise<vo
 
 // Storage endpoints
 export async function fetchStorages() {
-  const response = await fetch(`${API_BASE_URL}/storages`)
+  const response = await fetch(`${API_BASE_URL}/list_storages`)
   if (!response.ok) {
     throw new Error('Failed to fetch storages')
   }
-  return await response.json()
+  const result = await response.json()
+  return result.data
 }
 
 export async function createStorage(name: string, description?: string) {
@@ -160,11 +161,18 @@ export async function updateStorage(storageId: number, name: string, description
 }
 
 export async function fetchStorageFiles(storageId: number) {
-  const response = await fetch(`${API_BASE_URL}/storages/${storageId}/files`)
-  if (!response.ok) {
-    throw new Error('Failed to fetch storage files')
+  try {
+    const response = await fetch(`${API_BASE_URL}/storages/${storageId}/files`)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null)
+      throw new Error(errorData?.detail || 'Failed to fetch storage files')
+    }
+    const result = await response.json()
+    return result.data || []
+  } catch (error) {
+    console.error('Error fetching storage files:', error)
+    throw error
   }
-  return await response.json()
 }
 
 export async function fetchFileInfo(storageId: number, fileId: number) {

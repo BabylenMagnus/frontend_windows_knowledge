@@ -102,12 +102,22 @@ export function useStorageList() {
   }
 
   const loadStorageFiles = async (storageId: number) => {
+    if (!storageId || isNaN(storageId)) {
+      setError('Invalid storage ID')
+      return
+    }
+
+    const storage = storages.find(s => s.id === storageId)
+    if (!storage) {
+      setError('Storage not found')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     try {
       const data = await fetchStorageFiles(storageId)
       setFiles(data)
-      const storage = storages.find(s => s.id === storageId) || null
       setCurrentStorage(storage)
     } catch (err) {
       console.error('Error loading storage files:', err)

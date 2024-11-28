@@ -69,7 +69,7 @@ export function StorageList({
       <div className="flex-1 overflow-auto">
         {storages.map((storage) => (
           <div
-            key={storage.id}
+            key={`storage-${storage.id}`}
             className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
               currentStorage?.id === storage.id
                 ? 'bg-secondary'
@@ -77,7 +77,7 @@ export function StorageList({
             }`}
           >
             {editingId === storage.id ? (
-              <div className="flex-1 flex items-center gap-2">
+              <div key={`edit-${storage.id}`} className="flex-1 flex items-center gap-2">
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -97,6 +97,7 @@ export function StorageList({
             ) : (
               <>
                 <div
+                  key={`view-${storage.id}`}
                   className="flex-1 flex items-center gap-2"
                   onClick={() => onStorageSelect(storage.id)}
                 >
