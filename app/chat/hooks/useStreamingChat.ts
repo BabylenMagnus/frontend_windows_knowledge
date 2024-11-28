@@ -1,39 +1,34 @@
 "use client"
 
 import { useState } from 'react'
-import { messageApi } from '../services/messageApi'
 
 export function useStreamingChat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const streamChatResponse = async (
-    query: string,
-    chatId: string,
-    onChunk: (chunk: string, sources?: any[]) => void,
-    onComplete?: () => void
-  ) => {
+  const streamMessage = async (content: string, chatId: number): Promise<string> => {
     setIsStreaming(true)
     setError(null)
 
     try {
-      await messageApi.streamChatResponse(
-        query,
-        chatId,
-        onChunk,
-        (error) => {
-          setError(error.message)
-        }
-      )
+      // Имитация задержки стриминга
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Мок ответа
+      const response = `Это тестовый ответ на ваше сообщение: "${content}"`
+      
+      return response
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка при отправке сообщения')
+      throw err
     } finally {
       setIsStreaming(false)
-      onComplete?.()
     }
   }
 
   return {
-    streamChatResponse,
     isStreaming,
+    streamMessage,
     error
   }
 }

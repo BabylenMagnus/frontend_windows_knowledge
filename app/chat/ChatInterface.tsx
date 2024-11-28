@@ -1,125 +1,87 @@
-import React, { useState, useEffect } from 'react'
-import { useChatList } from './hooks/useChatList'
-import { useChatHistory } from './hooks/useChatHistory'
-import { useStreamingChat } from './hooks/useStreamingChat'
-import { ChatList } from './components/ChatList'
-import { ChatMessages } from './components/ChatMessages'
-import { ChatInput } from './components/ChatInput'
-import { Message } from './types/message'
-import { messageApi } from './api/messageApi' // Assuming messageApi is imported from this file
+"use client"
 
-export default function ChatInterface() {
+import { useState } from 'react'
+import { ChatList } from './components/ChatList'
+import { ChatWindow } from './components/ChatWindow'
+import { UploadSection } from './components/UploadSection'
+import { useChatList } from './hooks/useChatList'
+import { useStorageList } from './hooks/useStorageList'
+import { Storage } from './types/storage'
+
+type Section = 'chats' | 'storages'
+
+export function ChatInterface() {
+  const [currentSection, setCurrentSection] = useState<Section>('chats')
+  
   const {
-    chats, 
-    models, 
-    currentChat, 
-    createNewChat, 
-    selectChat
+    chats,
+    currentChat,
+    isLoading: isChatsLoading,
+    error: chatsError,
+    createNewChat,
+    selectChat,
+    refreshChats
   } = useChatList()
 
   const {
-    messages,
-    addMessage,
-    updateLastMessage,
-    saveMessage
-  } = useChatHistory(currentChat?.id)
+    storages,
+    currentStorage,
+    isLoading: isStoragesLoading,
+    error: storagesError,
+    selectStorage,
+    refreshStorages
+  } = useStorageList()
 
-  const { 
-    streamChatResponse, 
-    isStreaming,
-    error 
-  } = useStreamingChat()
+  console.log('ChatInterface render:', {
+    chats,
+    currentChat,
+    currentSection,
+    isChatsLoading
+  }) // Debug log
 
-  // Send message handler
-  const handleSendMessage = async (inputMessage: string) => {
-    if (!currentChat) return
-
-    // Create user message
-    const userMessage: Message = {
-      id: Date.now(),
-      content: inputMessage,
-      sender: 'user',
-      timestamp: new Date().toLocaleString(),
-    }
-
-    // Add user message and save to backend
-    addMessage(userMessage)
-    await messageApi.saveMessage(userMessage, currentChat.id, 'user')
-
-    // Prepare for streaming response
-    const assistantMessage: Message = {
-      id: Date.now() + 1,
-      content: '',
-      sender: 'assistant',
-      timestamp: new Date().toLocaleString(),
-      isStreaming: true,
-    }
-
-    // Add initial assistant message
-    addMessage(assistantMessage)
-
-    try {
-      // Stream chat response
-      await streamChatResponse(
-        inputMessage,
-        currentChat.id,
-        // Content update callback
-        (content, sources) => {
-          updateLastMessage(content, sources)
-        },
-        // Completion callback
-        async () => {
-          // Get final message content
-          const lastMessage = messages[messages.length - 1]
-          
-          // Save assistant message to backend
-          if (lastMessage) {
-            await messageApi.saveMessage(
-              { ...lastMessage, content: lastMessage.content || '' },
-              currentChat.id,
-              'model'
-            )
-          }
-        }
-      )
-    } catch (err) {
-      console.error('Chat error:', err)
-      
-      // Update last message with error
-      updateLastMessage(
-        `Ошибка: ${error || 'Неизвестная ошибка при отправке сообщения'}`,
-        []
-      )
+  const handleSectionChange = (section: Section) => {
+    setCurrentSection(section)
+    if (section === 'chats') {
+      refreshChats()
+    } else {
+      refreshStorages()
     }
   }
 
-  // Load chat history when current chat changes
-  useEffect(() => {
-    if (currentChat?.id) {
-      // Fetch chat history for current chat
-    }
-  }, [currentChat])
+  const handleStorageSelect = (storage: Storage) => {
+    selectStorage(storage)
+  }
 
   return (
     <div className="flex h-screen bg-background">
-      <ChatList 
+      <ChatList
         chats={chats}
         currentChat={currentChat}
         onCreateChat={createNewChat}
         onSelectChat={selectChat}
+        storages={storages}
+        currentStorage={currentStorage}
+        onSelectStorage={handleStorageSelect}
+        currentSection={currentSection}
+        onSectionChange={handleSectionChange}
+        isLoading={currentSection === 'chats' ? isChatsLoading : isStoragesLoading}
+        error={currentSection === 'chats' ? chatsError : storagesError}
       />
 
-      <div className="flex-1 flex flex-col">
-        <ChatMessages 
-          messages={messages} 
-          isLoading={isStreaming} 
+      {currentSection === 'chats' ? (
+        <ChatWindow currentChat={currentChat} />
+      ) : (
+        <UploadSection
+          onFileUpload={(file) => {
+            console.log('File upload:', file)
+            // Implement file upload logic
+          }}
+          onLinkAdd={(url) => {
+            console.log('Link add:', url)
+            // Implement link add logic
+          }}
         />
-        
-        <ChatInput 
-          onSendMessage={handleSendMessage}
-          isLoading={isStreaming}
-        />
-      </div>
+      )}
     </div>
   )
 }

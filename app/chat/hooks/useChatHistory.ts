@@ -1,93 +1,99 @@
-import React, { useState, useCallback } from 'react'
-import { Message } from '../types/message'
-import { messageApi } from '../services/messageApi'
+"use client"
 
-export function useChatHistory(chatId?: number) {
+import { useState, useEffect } from 'react'
+import { Message } from '../types/chat'
+import { fetchChatHistory, sendMessage } from '../services/api'
+
+export function useChatHistory(chatId: number | undefined) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [chatHistoryCache, setChatHistoryCache] = useState<{[chatId: number]: Message[]}>({})
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Load chat history
-  const loadChatHistory = useCallback(async (id?: number) => {
-    if (!id) return []
-
-    // Check cache first
-    if (chatHistoryCache[id]) {
-      setMessages(chatHistoryCache[id])
-      return chatHistoryCache[id]
+  const loadMessages = async () => {
+    if (!chatId) {
+      setMessages([])
+      return
     }
-
+    
     setIsLoading(true)
+    setError(null)
+    
     try {
-      const history = await messageApi.fetchChatHistory(id)
+      console.log('Fetching messages for chat:', chatId)
+      const history = await fetchChatHistory(chatId)
+      console.log('Fetched messages:', history)
       
-      // Update cache and messages
-      setChatHistoryCache(prev => ({...prev, [id]: history}))
-      setMessages(history)
-      
-      return history
-    } catch (error) {
-      console.error('Error loading chat history:', error)
-      return []
+      // Validate and transform messages
+      if (Array.isArray(history)) {
+        const validMessages = history.filter(msg => 
+          msg && 
+          typeof msg === 'object' && 
+          'id' in msg && 
+          'text' in msg &&
+          'author' in msg
+        ) as Message[]
+        
+        setMessages(validMessages)
+        console.log('Valid messages:', validMessages)
+      } else {
+        console.warn('Fetched history is not an array:', history)
+        setMessages([])
+      }
+    } catch (err) {
+      console.error('Error loading messages:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load messages')
     } finally {
       setIsLoading(false)
     }
-  }, [chatHistoryCache])
+  }
 
-  // Add a new message
-  const addMessage = useCallback((message: Message) => {
-    setMessages(prev => [...prev, message])
-    
-    // Update cache if chat ID exists
-    if (chatId) {
-      setChatHistoryCache(prev => {
-        const updatedHistory = prev[chatId] 
-          ? [...prev[chatId], message]
-          : [message]
-        
-        return {
-          ...prev,
-          [chatId]: updatedHistory
-        }
-      })
-    }
-  }, [chatId])
+  const addMessage = async (text: string) => {
+    if (!chatId) return
 
-  // Update last message (for streaming)
-  const updateLastMessage = useCallback((content: string, sources?: string[]) => {
-    setMessages(prev => {
-      if (prev.length === 0) return prev
-
-      const lastMessage = {...prev[prev.length - 1]}
-      lastMessage.content = content
-      
-      if (sources) {
-        lastMessage.sources = sources
+    try {
+      // Optimistically add user message
+      const userMessage: Message = {
+        id: Date.now(),
+        text,
+        author: 'user',
+        chat_id: chatId,
+        created_at: new Date().toISOString()
       }
+      setMessages(prev => [...prev, userMessage])
 
-      return [...prev.slice(0, -1), lastMessage]
-    })
-  }, [])
+      // Send message to backend
+      console.log('Sending message:', { chat_id: chatId, text, author: 'user' })
+      const response = await sendMessage(chatId, text)
+      console.log('Message response:', response)
 
-  // Save message to backend
-  const saveMessage = useCallback(async (message: Message, author: 'user' | 'model') => {
-    if (!chatId) return false
+      if (response && typeof response === 'object' && 'text' in response) {
+        // Add assistant message when received
+        const assistantMessage: Message = {
+          id: Date.now() + 1,
+          text: response.text,
+          author: 'assistant',
+          chat_id: chatId,
+          created_at: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, assistantMessage])
+      } else {
+        console.warn('Invalid message response:', response)
+      }
+    } catch (err) {
+      console.error('Error sending message:', err)
+      setError(err instanceof Error ? err.message : 'Failed to send message')
+    }
+  }
 
-    return await messageApi.saveMessage(
-      chatId, 
-      message.content, 
-      author
-    )
+  useEffect(() => {
+    loadMessages()
   }, [chatId])
 
   return {
     messages,
-    chatHistoryCache,
     isLoading,
-    loadChatHistory,
+    error,
     addMessage,
-    updateLastMessage,
-    saveMessage,
-    setMessages
+    refreshMessages: loadMessages
   }
 }

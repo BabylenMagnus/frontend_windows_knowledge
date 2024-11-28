@@ -1,86 +1,83 @@
-import React, { useState, useEffect } from 'react'
-import { Chat, Model } from '../types/chat'
-import { chatApi } from '../services/chatApi'
+"use client"
+
+import { useState, useEffect } from 'react'
+import { Chat } from '../types/chat'
+import { fetchChats, createChat } from '../services/api'
 
 export function useChatList() {
   const [chats, setChats] = useState<Chat[]>([])
-  const [models, setModels] = useState<Model[]>([])
   const [currentChat, setCurrentChat] = useState<Chat | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Fetch chats and models on component mount
-  useEffect(() => {
-    const initializeChatData = async () => {
-      setIsLoading(true)
-      try {
-        const fetchedModels = await chatApi.fetchModels()
-        const fetchedChats = await chatApi.fetchChats()
-
-        setModels(fetchedModels)
-        setChats(fetchedChats)
-      } catch (error) {
-        console.error('Error initializing chat data:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    initializeChatData()
-  }, [])
-
-  // Create a new chat
-  const createNewChat = async () => {
-    const modelId = models.length > 0 ? models[0].id : 1
-    const newChatName = `Новый чат ${chats.length + 1}`
-
+  const loadChats = async () => {
+    setIsLoading(true)
+    setError(null)
     try {
-      const newChat = await chatApi.createChat(newChatName, modelId)
+      console.log('Fetching chats...')
+      const fetchedChats = await fetchChats()
+      console.log('Fetched chats:', fetchedChats)
       
-      if (newChat) {
-        // Add new chat to list and select it
-        setChats(prev => [newChat, ...prev])
-        setCurrentChat(newChat)
+      // Ensure we have an array of chats with required fields
+      if (Array.isArray(fetchedChats)) {
+        const validChats = fetchedChats.filter(chat => 
+          chat && 
+          typeof chat === 'object' && 
+          'id' in chat && 
+          'name' in chat
+        ) as Chat[]
+        
+        setChats(validChats)
+        console.log('Valid chats:', validChats)
+      } else {
+        console.warn('Fetched chats is not an array:', fetchedChats)
+        setChats([])
       }
-    } catch (error) {
-      console.error('Error creating new chat:', error)
+    } catch (err) {
+      console.error('Error loading chats:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load chats')
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // Select a chat
+  const handleCreateChat = async (name: string = 'Новый чат') => {
+    try {
+      console.log('Creating new chat:', name)
+      const newChat = await createChat(name, 1) // Using model_id 1 as default
+      console.log('Created chat:', newChat)
+      
+      if (newChat && typeof newChat === 'object' && 'id' in newChat) {
+        const chat = newChat as Chat
+        setChats(prev => [...prev, chat])
+        setCurrentChat(chat)
+        console.log('Added new chat to list')
+      } else {
+        console.warn('Invalid new chat data:', newChat)
+        throw new Error('Invalid chat data received from server')
+      }
+    } catch (err) {
+      console.error('Error creating chat:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create chat')
+    }
+  }
+
   const selectChat = (chat: Chat) => {
+    console.log('Selecting chat:', chat)
     setCurrentChat(chat)
   }
 
-  // Update chats list (e.g., after sending a message)
-  const updateChatsList = (updatedChat: Chat) => {
-    setChats(prev => {
-      // Find and update the chat or add if not exists
-      const existingChatIndex = prev.findIndex(c => c.id === updatedChat.id)
-      
-      if (existingChatIndex !== -1) {
-        const newChats = [...prev]
-        newChats[existingChatIndex] = updatedChat
-        
-        // Re-sort chats
-        return newChats.sort((a, b) => {
-          const dateA = new Date(a.lastMessageTimestamp || a.created_at).getTime()
-          const dateB = new Date(b.lastMessageTimestamp || b.created_at).getTime()
-          return dateB - dateA
-        })
-      } else {
-        return [updatedChat, ...prev]
-      }
-    })
-  }
+  useEffect(() => {
+    loadChats()
+  }, [])
 
   return {
     chats,
-    models,
     currentChat,
     isLoading,
-    createNewChat,
+    error,
+    createNewChat: handleCreateChat,
     selectChat,
-    updateChatsList,
-    setChats
+    refreshChats: loadChats
   }
 }

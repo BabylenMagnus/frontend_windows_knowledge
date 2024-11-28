@@ -1,38 +1,49 @@
 // Chat-related type definitions
 
-export type Model = {
+export interface Model {
   id: number;
   name: string;
   model_path: string;
-  type: string;
+  type: 'service' | 'local';
+  token?: string;
   context_window: number;
+  created_at: string;
+  updated_at: string;
 }
 
-export type Chat = {
-  id?: number;
-  created_at?: string;
-  updated_at?: string;
+export interface Chat {
+  id: number;
   name: string;
+  created_at: string;
+  updated_at: string;
   model_id: number;
-  lastMessageTimestamp?: string;
 }
 
-export type ChatHistory = {
-  id?: number;
-  created_at?: string;
-  updated_at?: string;
-  author: 'model' | 'user';
+export interface Message {
+  id: number;
   chat_id: number;
   text: string;
+  author: 'user' | 'assistant';
+  created_at: string;
 }
 
 export interface ChatRequestBody {
   query: string;
-  collection_name: string;
   chat_id?: number;
 }
 
 export interface ChatStreamEvent {
   content?: string;
   sources?: string[];
+}
+
+export interface ChatCreate {
+  name: string;
+  model_id: number;
+}
+
+export interface ChatHistoryCreate {
+  chat_id: number;
+  text: string;
+  author: 'user' | 'assistant';
 }
